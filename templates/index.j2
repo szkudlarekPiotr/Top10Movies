@@ -1,0 +1,39 @@
+{% extends 'base.j2' %}
+
+{% block title %}My Top 10 Movies{% endblock %}
+
+{% block content %}
+<div class="container">
+  <h1 class="heading">My Top 10 Movies</h1>
+  <p class="description">These are my all-time favourite movies.</p>
+  {% for item in movies:%}
+  <div class="card">
+    <div class="front"
+      style="background-image: url('https://www.shortlist.com/media/images/2019/05/the-30-coolest-alternative-movie-posters-ever-2-1556670563-K61a-column-width-inline.jpg');">
+      <p class="large">{{loop.index}}</p>
+    </div>
+    <div class="back">
+      <div>
+        <div class="title">{{item.title}}<span class="release_date">({{item.release_date}})</span></div>
+        <div class="rating">
+          <label>{{item.rating}}</label>
+          <i class="fas fa-star star"></i>
+        </div>
+        <p class="review">"{{item.comment}}"</p>
+        <p class="overview">
+          {{item.description}}
+        </p>
+
+        <a href="{{url_for('update', id=item.id)}}" class="button">Update</a>
+        <a href="{{url_for('delete', id=item.id)}}" class="button delete-button">Delete</a>
+
+      </div>
+    </div>
+  </div>
+  {%endfor%}
+</div>
+<div class="container text-center add">
+  <a href="{{url_for('add')}}" class="button">Add Movie</a>
+</div>
+
+{% endblock %}
