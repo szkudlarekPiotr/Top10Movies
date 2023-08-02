@@ -1,16 +1,17 @@
 from flask import Flask, render_template, redirect, url_for, request
 from flask_bootstrap import Bootstrap5
-from wtforms_models import AddForm
+from wtforms_models import AddForm, RatingForm
 from database_models import Movie, db
 import requests
+import ast
 import os
 
 SECRET_KEY = os.urandom(32)
+OMDB_ENDPOINT = os.environ["OMDB_ENDPOINT"]
+OMDB_KEY = os.environ["OMDB_KEY"]
 
 app = Flask(__name__)
-app.config[
-    "SQLALCHEMY_DATABASE_URI"
-] = "postgresql://postgres:admin@localhost:5433/movies"
+app.config["SQLALCHEMY_DATABASE_URI"] = os.environ["DB_URI"]
 app.config["SECRET_KEY"] = SECRET_KEY
 Bootstrap5(app)
 db.init_app(app)
@@ -18,41 +19,68 @@ db.init_app(app)
 
 @app.route("/")
 def home():
-    movies = list(db.session.execute(db.select(Movie)).scalars())
+    movies = list(db.session.execute(db.select(Movie).order_by(Movie.rating)).scalars())
     return render_template("index.j2", movies=movies)
 
 
 @app.route("/add", methods=["GET", "POST"])
 def add():
-    form = AddForm()
-    if request.method == "POST":
-        if form.validate_on_submit():
-            movie = Movie(
-                title=form.title.data,
-                release_date=form.release_date.data,
-                rating=form.rating.data,
-                comment=form.comment.data,
-                description=form.description.data,
-            )
-            db.session.add(movie)
-            db.session.commit()
-            return redirect(url_for("home"))
-        else:
-            return render_template("add.j2", form=form)
+    add_form = AddForm()
+    if request.args.get("movie", False):
+        movie = request.args["movie"]
+        imdb_id = request.args["imdb_id"]
+        plot_response = requests.get(
+            url=OMDB_ENDPOINT, params={"apikey": OMDB_KEY, "i": imdb_id}
+        )
+        plot_response.raise_for_status()
+        plot = plot_response.json()
+        movie_dict = ast.literal_eval(movie)
+        temp_movie = Movie(
+            title=movie_dict["Title"],
+            release_date=int(movie_dict["Year"]),
+            img_url=movie_dict["Poster"],
+            description=plot["Plot"],
+        )
+        db.session.add(temp_movie)
+        db.session.commit()
+        id = db.session.execute(
+            db.Select(Movie.id).where(Movie.title == temp_movie.title)
+        ).scalar()
+        return redirect(url_for("update", id=id, edit=False))
     else:
-        return render_template("add.j2", form=form)
+        if request.method == "POST":
+            if add_form.validate_on_submit():
+                data_params = {"apikey": OMDB_KEY, "s": add_form.title.data}
+                data_response = requests.get(url=OMDB_ENDPOINT, params=data_params)
+                data_response.raise_for_status()
+                results = data_response.json()
+                return render_template("select.j2", movies=results)
+            else:
+                return render_template("add.j2", form=add_form)
+        else:
+            return render_template("add.j2", form=add_form)
 
 
 @app.route("/update", methods=["GET", "POST"])
 def update():
-    id = request.args.get("id")
+    form = RatingForm()
+    id = request.args["id"]
     movie = db.get_or_404(Movie, id)
-    return render_template("edit.j2", movie=movie)
+    if request.method == "POST":
+        if form.validate_on_submit():
+            movie.rating = form.rating.data
+            movie.comment = form.comment.data
+            db.session.commit()
+            return redirect(url_for("home"))
+        else:
+            return render_template("edit.j2", form=form, id=id, title=movie.title)
+    else:
+        return render_template("edit.j2", form=form, id=id, title=movie.title)
 
 
 @app.route("/delete")
 def delete():
-    id = request.args.get("id")
+    id = request.args["id"]
     movie = db.get_or_404(Movie, id)
     db.session.delete(movie)
     db.session.commit()
