@@ -9,7 +9,7 @@ import ast
 import os
 
 SECRET_KEY = os.urandom(32)
-OMDB_ENDPOINT = os.environ["OMDB_ENDPOINT"]
+OMDB_ENDPOINT = "http://www.omdbapi.com/"
 OMDB_KEY = os.environ["OMDB_KEY"]
 
 app = Flask(__name__)
@@ -17,6 +17,17 @@ app.config["SQLALCHEMY_DATABASE_URI"] = os.environ["DB_URI"]
 app.config["SECRET_KEY"] = SECRET_KEY
 Bootstrap5(app)
 db.init_app(app)
+
+
+def get_request(params):
+    params = params
+    try:
+        response = requests.get(url=OMDB_ENDPOINT, params=params)
+        response.raise_for_status()
+        return response.json()
+    except (RequestException, HTTPError) as e:
+        print(f"Error: {e.args}")
+        abort(404)
 
 
 @app.route("/")
@@ -28,51 +39,35 @@ def home():
 @app.route("/add", methods=["GET", "POST"])
 def add():
     add_form = AddForm()
-    if request.args.get("movie", False) and request.args.get("imdb_id", False):
-        movie = request.args["movie"]
-        imdb_id = request.args["imdb_id"]
-        try:
-            plot_response = requests.get(
-                url=OMDB_ENDPOINT, params={"apikey": OMDB_KEY, "i": imdb_id}
-            )
-            plot_response.raise_for_status()
-        except (RequestException, HTTPError) as e:
-            print(f"Error: {e.args}")
-            abort(404)
-        plot = plot_response.json()
+    movie = request.args.get("movie", False)
+    imdb_id = request.args.get("imdb_id", False)
+    if not movie or not imdb_id:
+        if request.method != "POST" or not add_form.validate_on_submit():
+            return render_template("add.j2", form=add_form)
+        else:
+            data_params = {"apikey": OMDB_KEY, "s": add_form.title.data}
+            results = get_request(data_params)
+            return render_template("select.j2", movies=results)
+    else:
         movie_dict = ast.literal_eval(movie)
-        temp_movie = Movie(
+        params = {"apikey": OMDB_KEY, "i": imdb_id}
+        plot = get_request(params)
+        new_movie = Movie(
             title=movie_dict["Title"],
             release_date=int(movie_dict["Year"]),
             img_url=movie_dict["Poster"],
             description=plot["Plot"],
         )
-        db.session.add(temp_movie)
+        db.session.add(new_movie)
         try:
             db.session.commit()
+            id = db.session.execute(
+                db.Select(Movie.id).where(Movie.title == new_movie.title)
+            ).scalar()
         except exc.SQLAlchemyError as e:
             print(f"Error: {e.args}")
             abort(404)
-        id = db.session.execute(
-            db.Select(Movie.id).where(Movie.title == temp_movie.title)
-        ).scalar()
         return redirect(url_for("update", id=id))
-    else:
-        if request.method == "POST":
-            if add_form.validate_on_submit():
-                data_params = {"apikey": OMDB_KEY, "s": add_form.title.data}
-                try:
-                    data_response = requests.get(url=OMDB_ENDPOINT, params=data_params)
-                    data_response.raise_for_status()
-                except (RequestException, HTTPError) as e:
-                    print(f"Error: {e.args}")
-                    abort(404)
-                results = data_response.json()
-                return render_template("select.j2", movies=results)
-            else:
-                return render_template("add.j2", form=add_form)
-        else:
-            return render_template("add.j2", form=add_form)
 
 
 @app.route("/update", methods=["GET", "POST"])
@@ -80,20 +75,17 @@ def update():
     form = RatingForm()
     id = request.args["id"]
     movie = db.get_or_404(Movie, id)
-    if request.method == "POST":
-        if form.validate_on_submit():
-            movie.rating = form.rating.data
-            movie.comment = form.comment.data
-            try:
-                db.session.commit()
-            except exc.SQLAlchemyError as e:
-                print(f"Error {e.args}")
-                abort(404)
-            return redirect(url_for("home"))
-        else:
-            return render_template("edit.j2", form=form, id=id, title=movie.title)
-    else:
+    if not form.validate_on_submit():
         return render_template("edit.j2", form=form, id=id, title=movie.title)
+    else:
+        movie.rating = form.rating.data
+        movie.comment = form.comment.data
+        try:
+            db.session.commit()
+        except exc.SQLAlchemyError as e:
+            print(f"Error {e.args}")
+            abort(404)
+        return redirect(url_for("home"))
 
 
 @app.route("/delete")
