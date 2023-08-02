@@ -5,10 +5,17 @@
 {% block content %}
 <div class="container">
   <h1 class="heading">Select Movie</h1>
+  {% if movies["Search"]:%}
   {% for item in movies["Search"]:%}
   <p>
     <a href="{{url_for('add', movie=item, imdb_id=item['imdbID'])}}">{{item["Title"]}} - {{item["Year"]}}</a>
   </p>
   {%endfor%}
+  {% else:%}
+  <p>No movies found</p>
+  {%endif%}
+  <p>
+    <a href="{{url_for('home')}}" , style="color:tomato">Return to homepage</a>
+  </p>
 </div>
 {% endblock %}

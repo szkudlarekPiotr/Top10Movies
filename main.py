@@ -1,8 +1,10 @@
-from flask import Flask, render_template, redirect, url_for, request
+from flask import Flask, render_template, redirect, url_for, request, abort
 from flask_bootstrap import Bootstrap5
 from wtforms_models import AddForm, RatingForm
 from database_models import Movie, db
+from sqlalchemy import exc
 import requests
+from requests.exceptions import RequestException, HTTPError
 import ast
 import os
 
@@ -26,13 +28,17 @@ def home():
 @app.route("/add", methods=["GET", "POST"])
 def add():
     add_form = AddForm()
-    if request.args.get("movie", False):
+    if request.args.get("movie", False) and request.args.get("imdb_id", False):
         movie = request.args["movie"]
         imdb_id = request.args["imdb_id"]
-        plot_response = requests.get(
-            url=OMDB_ENDPOINT, params={"apikey": OMDB_KEY, "i": imdb_id}
-        )
-        plot_response.raise_for_status()
+        try:
+            plot_response = requests.get(
+                url=OMDB_ENDPOINT, params={"apikey": OMDB_KEY, "i": imdb_id}
+            )
+            plot_response.raise_for_status()
+        except (RequestException, HTTPError) as e:
+            print(f"Error: {e.args}")
+            abort(404)
         plot = plot_response.json()
         movie_dict = ast.literal_eval(movie)
         temp_movie = Movie(
@@ -42,17 +48,25 @@ def add():
             description=plot["Plot"],
         )
         db.session.add(temp_movie)
-        db.session.commit()
+        try:
+            db.session.commit()
+        except exc.SQLAlchemyError as e:
+            print(f"Error: {e.args}")
+            abort(404)
         id = db.session.execute(
             db.Select(Movie.id).where(Movie.title == temp_movie.title)
         ).scalar()
-        return redirect(url_for("update", id=id, edit=False))
+        return redirect(url_for("update", id=id))
     else:
         if request.method == "POST":
             if add_form.validate_on_submit():
                 data_params = {"apikey": OMDB_KEY, "s": add_form.title.data}
-                data_response = requests.get(url=OMDB_ENDPOINT, params=data_params)
-                data_response.raise_for_status()
+                try:
+                    data_response = requests.get(url=OMDB_ENDPOINT, params=data_params)
+                    data_response.raise_for_status()
+                except (RequestException, HTTPError) as e:
+                    print(f"Error: {e.args}")
+                    abort(404)
                 results = data_response.json()
                 return render_template("select.j2", movies=results)
             else:
@@ -70,7 +84,11 @@ def update():
         if form.validate_on_submit():
             movie.rating = form.rating.data
             movie.comment = form.comment.data
-            db.session.commit()
+            try:
+                db.session.commit()
+            except exc.SQLAlchemyError as e:
+                print(f"Error {e.args}")
+                abort(404)
             return redirect(url_for("home"))
         else:
             return render_template("edit.j2", form=form, id=id, title=movie.title)
@@ -83,7 +101,11 @@ def delete():
     id = request.args["id"]
     movie = db.get_or_404(Movie, id)
     db.session.delete(movie)
-    db.session.commit()
+    try:
+        db.session.commit()
+    except exc.SQLAlchemyError as e:
+        print(f"Error {e.args}")
+        abort(404)
     return redirect(url_for("home"))
 
 

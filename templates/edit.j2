@@ -3,17 +3,13 @@
 {%from 'bootstrap5/form.html' import render_form %}
 
 {% block title %}
-{% if not edit%}
-Add Movie
-{% else%}
-Edit Movies
-{% endif %}
+Movie rating
 {% endblock %}
 
 {% block content %}
 <div class="content">
   <h1 class="heading">{{title}}</h1>
-  <p class="description">Movie Rating</p>
+  <p class="description">Movie rating</p>
   <form action="{{url_for('update', form=form, id=id)}}" method="POST" novalidate>
     {{render_form(form)}}
   </form>
